@@ -1,25 +1,4 @@
 frappe.ui.form.on("Audit and Compliance", {
-    onload(frm) {
-        // Custom formatters
-        if (frm.fields_dict['audit_closure_table']?.grid) {
-            frm.fields_dict['audit_closure_table'].grid.add_custom_formatter('delay_in_closure', function(value, doc) {
-                if (!doc.recived_date && (!value || value === "0" || value === 0)) {
-                    return `<span style="/* CSS_COMMENTED_BY_PURVI color: #6c757d; */">Awaiting Receive Date</span>`;
-                }
-                return value;
-            });
-        }
-
-        if (frm.fields_dict['com_visit_compliance']?.grid) {
-            frm.fields_dict['com_visit_compliance'].grid.add_custom_formatter('turnaround_time_days', function(value, doc) {
-                if (!doc.date_of_closure && (!value || value === "0" || value === 0)) {
-                    return `<span style="/* CSS_COMMENTED_BY_PURVI color: #6c757d; */">Awaiting date of closure</span>`;
-                }
-                return value;
-            });
-        }
-    },
-
     refresh(frm) {
         // Inject Custom CSS Styles
         frappe.dom.set_style(`/* CSS_COMMENTED_BY_PURVI
@@ -112,10 +91,6 @@ CSS_COMMENTED_BY_PURVI */`);
             }
             let hasDate = !!row.recived_date;
             frappe.model.set_value(row.doctype, row.name, "compliance_report", hasDate ? "Received" : "Pending");
-
-            if (!hasDate) {
-                frappe.model.set_value(row.doctype, row.name, "delay_in_closure", "Awaiting Receive Date");
-            }
         });
 
         // Refresh Logic for COM Visit
@@ -125,17 +100,9 @@ CSS_COMMENTED_BY_PURVI */`);
             }
         });
 
-        // Refresh Logic for COM Visit Compliance
-        (frm.doc.com_visit_compliance || []).forEach(row => {
-            if (row.date_of_publish) {
-                frappe.model.set_value(row.doctype, row.name, 'month', moment(row.date_of_publish, 'YYYY-MM-DD').format('MMMM'));
-            }
-            let hasDate = !!row.date_of_closure;
-            frappe.model.set_value(row.doctype, row.name, "status", hasDate ? "Completed" : "Pending");
-            if (!hasDate) {
-                frappe.model.set_value(row.doctype, row.name, "turnaround_time_days", "Awaiting date of closure");
-            }
-        });
+        // Do not mutate COM Visit Compliance rows during refresh.
+        // The grid formatter displays the awaiting-closure text without dirtying the document.
+
 
         // Refresh Grids
         if (frm.fields_dict['audit_closure_table']?.grid) {
@@ -232,15 +199,12 @@ frappe.ui.form.on("Audit Closure Delay Item", {
         let row = frappe.get_doc(cdt, cdn);
         let hasDate = !!row.recived_date;
         frappe.model.set_value(cdt, cdn, "compliance_report", hasDate ? "Received" : "Pending");
-        if (!hasDate) {
-            frappe.model.set_value(cdt, cdn, "delay_in_closure", "Awaiting Receive Date");
-        }
         highlight_status_rows(frm);
     },
 
     audit_closure_table_add(frm, cdt, cdn) {
         frappe.model.set_value(cdt, cdn, "compliance_report", "Pending");
-        frappe.model.set_value(cdt, cdn, "delay_in_closure", "Awaiting Receive Date");
+        frappe.model.set_value(cdt, cdn, "delay_in_closure", "");
         highlight_status_rows(frm);
     },
 
@@ -252,7 +216,7 @@ frappe.ui.form.on("Audit Closure Delay Item", {
             frappe.ui.form.trigger("Audit Closure Delay Item", "recived_date", frm, cdt, cdn);
         } else {
             frappe.model.set_value(cdt, cdn, "compliance_report", "Pending");
-            frappe.model.set_value(cdt, cdn, "delay_in_closure", "Awaiting Receive Date");
+            frappe.model.set_value(cdt, cdn, "delay_in_closure", "");
             frm.fields_dict['audit_closure_table']?.grid.refresh();
             highlight_status_rows(frm);
         }
@@ -267,7 +231,7 @@ frappe.ui.form.on("Audit Closure Delay Item", {
 
                 frappe.model.set_value(cdt, cdn, 'recived_date', '');
                 frappe.model.set_value(cdt, cdn, 'compliance_report', 'Pending');
-                frappe.model.set_value(cdt, cdn, 'delay_in_closure', 'Awaiting Receive Date');
+                frappe.model.set_value(cdt, cdn, 'delay_in_closure', '');
 
                 frm.fields_dict['audit_closure_table']?.grid.refresh();
                 highlight_status_rows(frm);
@@ -280,7 +244,7 @@ frappe.ui.form.on("Audit Closure Delay Item", {
 
         let delay_val = (hasDate && row.report_published_date)
             ? String(frappe.datetime.get_diff(row.recived_date, row.report_published_date))
-            : "Awaiting Receive Date";
+            : "";
 
         frappe.model.set_value(cdt, cdn, "delay_in_closure", delay_val);
         frm.fields_dict['audit_closure_table']?.grid.refresh();
@@ -304,18 +268,13 @@ frappe.ui.form.on("COM Visit Item", {
 // -----------------------------------------------------------
 frappe.ui.form.on("COM Visit Compliance Item", {
     form_render(frm, cdt, cdn) {
-        let row = frappe.get_doc(cdt, cdn);
-        let hasDate = !!row.date_of_closure;
-        frappe.model.set_value(cdt, cdn, "status", hasDate ? "Completed" : "Pending");
-        if (!hasDate) {
-            frappe.model.set_value(cdt, cdn, "turnaround_time_days", "Awaiting date of closure");
-        }
+        // Avoid changing saved child-row data during form rendering.
         highlight_status_rows(frm);
     },
 
     com_visit_compliance_add(frm, cdt, cdn) {
         frappe.model.set_value(cdt, cdn, "status", "Pending");
-        frappe.model.set_value(cdt, cdn, "turnaround_time_days", "Awaiting date of closure");
+        frappe.model.set_value(cdt, cdn, "turnaround_time_days", "");
         highlight_status_rows(frm);
     },
 
@@ -327,7 +286,7 @@ frappe.ui.form.on("COM Visit Compliance Item", {
             frappe.ui.form.trigger("COM Visit Compliance Item", "date_of_closure", frm, cdt, cdn);
         } else {
             frappe.model.set_value(cdt, cdn, "status", "Pending");
-            frappe.model.set_value(cdt, cdn, "turnaround_time_days", "Awaiting date of closure");
+            frappe.model.set_value(cdt, cdn, "turnaround_time_days", "");
             frm.fields_dict['com_visit_compliance']?.grid.refresh();
             highlight_status_rows(frm);
         }
@@ -338,7 +297,7 @@ frappe.ui.form.on("COM Visit Compliance Item", {
 
         if (!row.date_of_closure) {
             frappe.model.set_value(cdt, cdn, "status", "Pending");
-            frappe.model.set_value(cdt, cdn, "turnaround_time_days", "Awaiting date of closure");
+            frappe.model.set_value(cdt, cdn, "turnaround_time_days", "");
             frm.fields_dict['com_visit_compliance']?.grid.refresh();
             highlight_status_rows(frm);
             return;
@@ -350,7 +309,7 @@ frappe.ui.form.on("COM Visit Compliance Item", {
 
                 frappe.model.set_value(cdt, cdn, 'date_of_closure', '');
                 frappe.model.set_value(cdt, cdn, 'status', 'Pending');
-                frappe.model.set_value(cdt, cdn, 'turnaround_time_days', 'Awaiting date of closure');
+                frappe.model.set_value(cdt, cdn, 'turnaround_time_days', '');
 
                 frm.fields_dict['com_visit_compliance']?.grid.refresh();
                 highlight_status_rows(frm);
@@ -363,7 +322,7 @@ frappe.ui.form.on("COM Visit Compliance Item", {
 
         let tat_val = (hasDate && row.date_of_publish)
             ? String(frappe.datetime.get_diff(row.date_of_closure, row.date_of_publish))
-            : "Awaiting date of closure";
+            : "";
 
         frappe.model.set_value(cdt, cdn, "turnaround_time_days", tat_val);
         frm.fields_dict['com_visit_compliance']?.grid.refresh();
